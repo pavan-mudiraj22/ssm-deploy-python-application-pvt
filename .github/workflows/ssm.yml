@@ -14,12 +14,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # Step 1: Checkout GitHub repository
+      # Step 1: Checkout code
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Step 2: Configure AWS Credentials
+      # Step 2: Configure AWS credentials
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -27,19 +26,21 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # Step 3: Verify EC2 Instance ID
-      - name: Verify EC2 Instance ID
+      # Step 3: Verify EC2 instance
+      - name: Verify EC2 Instance
         env:
           EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
         run: |
+          set -e
+
           if [ -z "$EC2_INSTANCE_ID" ]; then
-            echo "ERROR: EC2_INSTANCE_ID is missing"
+            echo "ERROR: EC2 instance ID is missing"
             exit 1
           fi
 
-          echo "EC2 Instance ID is configured"
+          echo "EC2 instance ID configured"
 
-      # Step 4: Deploy application using SSM
+      # Step 4: Deploy application through SSM
       - name: Deploy Python Application using SSM
         env:
           EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
@@ -51,6 +52,7 @@ jobs:
           PARAMS=$(jq -n '{
             commands: [
               "set -e",
+              "echo Starting EC2 deployment",
               "apt-get update",
               "apt-get install -y git python3 python3-venv python3-pip",
               "mkdir -p /opt/python-app",
@@ -68,25 +70,56 @@ jobs:
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$EC2_INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --comment "Python application deployment using GitHub Actions" \
+            --comment "Deploy Python application" \
             --parameters "$PARAMS" \
             --query "Command.CommandId" \
             --output text)
 
           echo "SSM Command ID: $COMMAND_ID"
 
-          echo "Waiting for deployment..."
+          echo "Waiting for SSM execution..."
 
-          aws ssm wait command-executed \
+          if aws ssm wait command-executed \
             --command-id "$COMMAND_ID" \
-            --instance-id "$EC2_INSTANCE_ID"
+            --instance-id "$EC2_INSTANCE_ID"; then
 
-          echo "Deployment output:"
+            echo "Deployment succeeded!"
+
+          else
+
+            echo "Deployment failed!"
+            echo "Fetching SSM error details..."
+
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$EC2_INSTANCE_ID" \
+              --query "Status" \
+              --output text || true
+
+            echo "========== STANDARD OUTPUT =========="
+
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$EC2_INSTANCE_ID" \
+              --query "StandardOutputContent" \
+              --output text || true
+
+            echo "========== STANDARD ERROR =========="
+
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$EC2_INSTANCE_ID" \
+              --query "StandardErrorContent" \
+              --output text || true
+
+            exit 1
+
+          fi
+
+          echo "========== DEPLOYMENT OUTPUT =========="
 
           aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" \
             --instance-id "$EC2_INSTANCE_ID" \
             --query "StandardOutputContent" \
             --output text
-
-          echo "Deployment completed successfully!"
