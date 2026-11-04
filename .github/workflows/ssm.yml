@@ -19,21 +19,31 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Step 2: Configure AWS Credentials using Access Keys
+      # Step 2: Configure AWS Credentials
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1
+          aws-region: us-east-1
 
-      # Step 3: Deploy application through AWS SSM
+      # Step 3: Verify EC2 Instance ID
+      - name: Verify EC2 Instance ID
+        env:
+          EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+        run: |
+          if [ -z "$EC2_INSTANCE_ID" ]; then
+            echo "ERROR: EC2_INSTANCE_ID is missing"
+            exit 1
+          fi
+
+          echo "EC2 Instance ID is configured"
+
+      # Step 4: Deploy application using SSM
       - name: Deploy Python Application using SSM
         env:
-          env:
-            EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+          EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
         run: |
-
           set -e
 
           echo "Starting deployment..."
